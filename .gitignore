@@ -12,3 +12,4 @@ target/
 *.xml
 .idea
 .gitignore
+.pyc
