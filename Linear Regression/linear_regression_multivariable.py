@@ -15,7 +15,7 @@ args = Namespace(
     epoches=1000
 )
 
-# In[2] load dataset
+
 boston = load_boston(return_X_y=False)
 boston_X = pd.DataFrame(boston.data,columns=boston.feature_names)
 boston_y = boston.target
@@ -28,7 +28,7 @@ for k_dim in range(1, 14): # select dimension from data
     cols = boston.feature_names[selector.get_support()]
     X_train = raw_X_train[cols]
     X_test = raw_X_test[cols]
-    # In[3] standardized and normalized
+
     x_scale = StandardScaler().fit(X_train)
     y_scale = StandardScaler().fit(y_train.reshape(-1,1))
 
@@ -36,7 +36,7 @@ for k_dim in range(1, 14): # select dimension from data
     standard_X_test = x_scale.transform(X_test)
     standard_y_train = y_scale.transform(y_train.reshape(-1,1))
     standard_y_test = y_scale.transform(y_test.reshape(-1,1))
-    # In[4] train regularization
+
     total_score = 0
     # from every dimension selection; compute for 20 times
     for i in range(20):
