@@ -12,6 +12,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model.stochastic_gradient import SGDRegressor
+import utils as uls
 
 args = Namespace(
     data_num=100,
@@ -21,28 +22,16 @@ args = Namespace(
 )
 
 
-def get_linear_data(num):
-    if num <= 1:
-        print("The length of data should be more than 1!")
-        pass
-    else:   
-        x = np.arange(1,num+1) # get axis x     
-        rand_k = 5 + (5-3)*np.random.random() # get random k in range [1,3]
-        rand_noise = np.random.uniform(-1,1,num)*(num/10) # get random noise
-        y = rand_k*x + rand_noise #
-        return x, y
-
-
 # In[2]
-x, y = get_linear_data(args.data_num)
-data = np.vstack([x,y]).T  # 将两个一位数组沿着垂直方向堆叠起来
+x, y, k = uls.get_linear_data(args.data_num)
+data = np.vstack([x,y]).T  # Stack two 1-d arrays vertically
 
 df = pd.DataFrame(data,columns=['X','Y'])
 plt.title("Random data for Linear Regression")
 plt.scatter(df['X'], df['Y'])
 plt.show()
 
-# In[3] 对数据进行标准化，归一化
+# In[3] standardized and normalized
 X_train, X_test, y_train, y_test = train_test_split(df['X'], df['Y'], test_size=args.test_rate)
 
 x_scaler = StandardScaler().fit(X_train.values.reshape(-1, 1))  # reshape is deprecated.Please use .values.reshape
@@ -69,6 +58,11 @@ prediction_test = (linear_model.predict(standard_x_test)*np.sqrt(y_scaler.var_) 
 
 train_MSE = np.mean((y_train - prediction_train)**2)
 test_MSE = np.mean((y_test - prediction_test)**2)
+
+predict_k = linear_model.coef_*(y_scaler.scale_/x_scaler.scale_)
+
+# return coefficients is 1d array-like
+print("Really coefficients is {} and predict coefficients is {}.".format(k,predict_k[0]))
 
 plt.figure(figsize=(15,5))
 plt.subplot(1, 2, 1)
