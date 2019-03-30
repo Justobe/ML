@@ -1,5 +1,3 @@
-
-
 ### 2019.03.21 - 张量
 
 这一章节主要是学习在pytorch中我们如何创建tensor。Tensor是torch中用于存储向量的重要的数据结构，并且方便进行GPU计算（numpy不支持GPU）。在pytorch-1.0之前的版本中，还有一个数据结构Variable。Variable和Tensor没有本质区别，都是存储张量，但是Variable可以用于计算梯度。在新版的pytorch-1.0中，将Variable被废弃了，我们统一使用Tensor保存张量，使用requires_grad=True来标记是否进行自动求导（在第二章中会详细介绍）
@@ -401,6 +399,12 @@ def generate_data(num,filename):
         for i in range(num):
             f.write("{},{}\n".format(x[i],y[i]))
 
+filename = "data.csv"
+# generate_data(200,filename)
+df = pd.read_csv(filename)
+plt.figure(figsize=(5, 5))
+plt.scatter(df['x'], df['Y'],s=2 )
+plt.show()
 ```
 
 数据如下所示：
@@ -411,18 +415,13 @@ def generate_data(num,filename):
 
 ```python
 from torch.utils.data import Dataset
+
+
 class MyDataset(Dataset):
     """ 数据集演示 """
-    def __init__(self, filename,header=True):
-        self.x = list()
-        self.Y = list()
-        with open(filename, 'r+') as f:
-            if header:
-                f.readline()                 #第一行是header
-            for line in f.readlines():
-                line = line.split(",")
-                self.x.append(line[0])
-                self.Y.append(line[1].strip("\n"))
+    def __init__(self, X,Y):
+        self.x = X
+        self.Y = Y
 
     def __len__(self):
         """返回dataset的长度"""
@@ -437,7 +436,7 @@ class MyDataset(Dataset):
 加载数据集：
 
 ```python
-data = MyDataset(filename)
+data = MyDataset(df['x'].values,df['Y'].values)
 dataloader = DataLoader(data,shuffle=True,batch_size=5)
 ```
 
@@ -469,7 +468,115 @@ trainset = datasets.MNIST(root='./data', # 表示 MNIST 数据的加载的目录
                                       transform=None) # 表示是否需要对数据进行预处理，none为不进行预处理
 ```
 
-### 2019.03.29 - 使用pytorch创建一个线性回归模型
+### 2019.03.29 - pytorch一元线性回归
+
+我们使用pytorch来创建一个最简单的一元线性回归，以此来学习pytorch的模型构建，训练，评估，可视化等各个过程。
+
+首先，我们使用的数据还是之前在数据集加载时使用的线性数据，我们将之前的数据存储到csv中，然后读取加载。
+
+一个简单的一元线性回归模型 y = kx 定义如下：
+
+linear_regression.py:
+
+```python
+import torch.nn as nn
+
+class LinearRegression(nn.Module):
+
+    def __init__(self):
+        super(LinearRegression, self).__init__()
+        self.lr = nn.Linear(1, 1)  # y = wx
+
+    def forward(self, x):
+        out = self.lr(x)
+        return out
+
+```
+
+在LinearRegression/run.py文件中，我们编写加载数据和训练以及模型保存的代码：
+
+数据加载及训练集划分：
+
+```python
+'''数据集划分'''
+df = pd.read_csv(args.filename,header=0)
+train_df = df.sample(frac=0.8,replace=False)  # 80%用于训练 20%用于测试
+test_df = df[~df.index.isin(train_df.index)]  # 总集合中删去训练的数据
+```
+
+数据归一化。如果不进行归一化，则梯度会很大，loss无法收敛
+
+```python
+'''数据进行归一化 否则无法用于训练 梯度太大'''
+test_df[['x']] = test_df[['x']].apply(max_min_scaler)
+test_df[['Y']] = test_df[['Y']].apply(max_min_scaler)
+train_df[['x']] = train_df[['x']].apply(max_min_scaler)
+train_df[['Y']] = train_df[['Y']].apply(max_min_scaler)
+
+train_X = train_df.loc[:, 'x'].values
+train_Y = train_df.loc[:, 'Y'].values
+test_X = test_df.loc[:, 'x'].values
+test_Y = test_df.loc[:, 'Y'].values
+```
+
+加载数据集，定义损失函数和优化器：
+
+```python
+'''加载数据集和dataloader'''
+data_set = MyDataset(train_X,train_Y)
+dl = DataLoader(dataset=data_set,batch_size=args.batch_size,shuffle=True)
+
+
+'''定义训练损失函数和优化器'''
+linear_model = LinearRegression()
+criterion = nn.MSELoss()
+optimizer = torch.optim.SGD(linear_model.parameters(), lr = 0.01)
+```
+
+训练并保存模型：
+
+```python
+for i in range(args.epoches):
+    avg_loss = 0
+    for batch, batch_data in enumerate(dl):
+        batch_x = torch.FloatTensor(list(batch_data[0])).reshape(-1,1)  #必须使用tensor
+        batch_y = torch.FloatTensor(list(batch_data[1])).reshape(-1,1)  #转换为 5x1 最前面的数字是batch_size
+        optimizer.zero_grad()  # 梯度清零
+        out = linear_model(batch_x)  #
+        loss = criterion(batch_y, out)
+
+        avg_loss += loss.data  # 将该epoch中的loss 求和
+        loss.backward()  # 反向传播
+        optimizer.step()  # 参数更新
+    if i % 10 == 0:
+        print("Epoches: {} ,loss: {}".format(i, avg_loss))
+torch.save(linear_model,"./result/linear_model.pkl")
+```
+
+模型评估及结果可视化：
+
+```python
+linear_model = torch.load("./result/linear_model.pkl")
+linear_model.eval()
+predict_y = linear_model(torch.FloatTensor(train_X).reshape(-1,1))
+
+'''绘制图像'''
+plt.figure(figsize=(5,5))
+plt.title("Linear Regression")
+plt.scatter(test_X.reshape(-1,1),test_Y.reshape(-1,1))
+plt.plot(train_X.reshape(-1,1),predict_y.detach().numpy(),color='red',label='regression line')
+plt.legend(['regression line', 'origin data'])
+plt.xlabel("X")
+plt.ylabel("Y")
+
+plt.savefig("./result/predict.png")   # 必须先savefig再show
+plt.show()                          # 因为show的时候会创建一个新的空白图片
+
+```
+
+![](E:\github\ML\Pytorch\img\predict.png)
+
+
 
 
 
