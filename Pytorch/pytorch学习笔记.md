@@ -535,6 +535,8 @@ optimizer = torch.optim.SGD(linear_model.parameters(), lr = 0.01)
 
 训练并保存模型：
 
+ 注意，在训练的时候，由于pytorch的广播机制，模型是可以介绍batch数据训练的，
+
 ```python
 for i in range(args.epoches):
     avg_loss = 0
@@ -576,11 +578,156 @@ plt.show()                          # 因为show的时候会创建一个新的�
 
 ![](E:\github\ML\Pytorch\img\predict.png)
 
+### 2019.03.30 - pytorch LeNet-5 模型
+
+今天对照着LeNet5的结构图，使用pytorch手动实现了一个模型，可以用于识别手写数据集MNIST，在测试集上的精度为0.9866。实现过程如下：
+
+LeCun在论文中提出的LeNet的结构如下：
+
+![img](img\lenet.png)
+
+现在常用的结构为：
+
+![](E:\github\ML\Pytorch\img\1351564-20180827204056354-1429986291.png)
 
 
 
+**卷积层-池化层-卷积层-池化层-全连接-全连接-全连接-softmax**
+
+首先我们来定义LeNet5的模型：
+
+```python
+import torch.nn as nn
 
 
+class LeNet_5(nn.Module):
+    def __init__(self):
+        super(LeNet_5,self).__init__()
+        self.conv1 = nn.Conv2d(1,6,5,padding=2)  # MNIST手写数据集是28x28的 但是LeNet5的输入是32x32的 需要padding
+        self.pooling1 = nn.MaxPool2d(2)
+        self.conv2 = nn.Conv2d(6,16,5)
+        self.pooling2 = nn.MaxPool2d(2)
+        self.fc1 = nn.Linear(16*5*5,120)
+        self.fc2 = nn.Linear(120,84)
+        self.fc3 = nn.Linear(84,10)
+
+    def forward(self, x):                      # [batch_size,1,28,28]
+        batch_size = x.size(0)   
+        conv1_x = self.conv1(x)
+        pooling1_x = self.pooling1(conv1_x)
+        conv2_x = self.conv2(pooling1_x)
+        pooling2_x = self.pooling2(conv2_x)
+        fc1_x = self.fc1(pooling2_x.reshape(batch_size,-1))
+        fc2_x = self.fc2(fc1_x)
+        output = self.fc3(fc2_x)
+        return output
+
+```
+
+
+
+在模型中我没有使用softmax,因为我在运行的代码中使用了CrossEntropyLoss（交叉熵损失函数），这个模块内置了softmax。
+
+模型定义很简单，接下来我们在run.py中运行我们的函数,首先加载数据集：
+
+我们使用pytorch torchvision中自带的数据库进行训练。同时，内置的mnist还将训练集和测试集进行了划分
+
+```python
+mnist_train = dset.MNIST(root="./dataset",train=True,download=False,transform=transforms.ToTensor())
+mnist_test = dset.MNIST(root="./dataset",train=False,download=False,transform=transforms.ToTensor())
+
+train_dl = DataLoader(mnist_train,batch_size=args.batch_size,shuffle=True)
+test_dl = DataLoader(mnist_test,batch_size=args.batch_size,shuffle=True)
+```
+
+定义模型进行训练：
+
+```python
+# In[3] 训练
+le_net = LeNet_5()
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(le_net.parameters(),lr = 0.01)
+
+for e in range(args.epoches):
+    avg_loss = 0
+    print("Epoch {}:".format(e))
+    for i, batch_data in enumerate(train_dl):
+        batch_image = batch_data[0]                    # [batch_size,1,28,28]
+        batch_label = batch_data[1].squeeze_()         # [1,128] -> (128,)
+        batch_num = batch_image.size(0)
+
+        optimizer.zero_grad()
+        out = le_net(batch_image).view(batch_num,-1)   # 不用args.batch_size的原因是 数据可能不是 128的整数倍
+        loss = criterion(out,batch_label)              # 从而无法进行
+        avg_loss += loss.data
+        loss.backward()
+        optimizer.step()
+
+        if i % 100 == 0:
+            print("loss = {} ".format(loss.data))
+
+torch.save(le_net,"result/lenet.pkl")
+```
+
+这段代码中有几个需要解释的地方：
+
+-  训练的batch_image的尺寸是[128,1,28,28]，其中128是batch_size，即一下训练多少张图片，1是通道数，我们的灰度图是单通道的。28x28是MNIST图片的尺寸
+
+- batch_data[1] 是批训练样本的标签，尺寸为[1,128]
+
+- le_net(batch_image)返回的结果是每一个样本被预测为某一类的概率，尺寸为[128,1,10]
+
+- 另外，由于我们使用的损失函数是CrossEntropyLoss()，其要求的输入是
+
+  - Input：(N,C) where C = number of classes，N = batch_size
+  - Target: (N) where each value is 0≤targets[i]≤C−1
+
+  因此，我们必须将[1,128]尺寸的矩阵，reshape成长度为(128,)的向量，同时将[128,1,10]reshape成[128,10]，否则就会报错
+
+  > RuntimeError: multi-target not supported at
+
+  [这部分解释来源于stackoverflow有记录](<https://stackoverflow.com/questions/49206550/pytorch-error-multi-target-not-supported-in-crossentropyloss>)
+
+评估模型：
+
+```python
+le_net = torch.load("result/lenet.pkl")
+le_net.eval()
+
+total = test_dl.sampler.num_samples                     #获取测试集dataloader的样本数
+all_tp = 0
+for _,(test_img,test_label) in enumerate(test_dl):
+    batch_predict = le_net(test_img).squeeze_()         # 将 [5,1,10] 转换为 [5,10]
+    predict_label = torch.max(batch_predict,1)          # pytorch中 判断相同用 equal(); a == b 返回的是每个元素对应值是否相同
+    tp_num = (predict_label[1] == test_label).sum()     # 对应位置相同为1 不同为0 例如 [1,0,1,0,0]
+
+    all_tp += tp_num.item()                             # 把0维的数  0-dim转换为 python 数值
+
+test_acc = all_tp/total
+print("Test Accurary: {}".format(round(test_acc,4)))
+
+
+
+```
+
+torch.max(x,1)表示记录矩阵x在行方向上，每一列的最大值，和对应列序号。torch.max(x,1)则记录列方向上，每一行的最大值，和对应行号。返回值是一个元组，第一个元素代表最大值组成的列表，第二个元素代表最大值对应列序号对应的列表。这里我们用来计算每个样本被预测的标签。
+
+示例：
+
+```shell
+a = torch.rand(5,3)
+print(a)
+tensor([[0.7455, 0.1243, 0.2365],
+        [0.6545, 0.7545, 0.3551],
+        [0.0446, 0.4906, 0.3652],
+        [0.5533, 0.7339, 0.0600],
+        [0.4516, 0.8994, 0.1623]])
+torch.max(a,1)
+Out[6]: (tensor([0.7455, 0.7545, 0.4906, 0.7339, 0.8994]), tensor([0, 1, 1, 1, 1]))
+
+```
+
+完整代码在mycode/lenet_5下。由于pytorch还没有内置的可视化工具（虽然可以使用tensorboard或者自己绘制loss曲线绘制），所以这里就不放训练过程的可视化了。
 
 
 

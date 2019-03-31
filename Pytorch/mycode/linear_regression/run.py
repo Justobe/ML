@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from mycode.dataset.mydataset import MyDataset
 from torch.utils.data.dataloader import DataLoader
-from mycode.LinearRegression.linear_regression import LinearRegression
+from mycode.linear_regression.model import LinearRegression
 import torch.nn as nn
 import torch
 import matplotlib.pyplot as plt
